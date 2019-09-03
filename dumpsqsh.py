@@ -3,13 +3,30 @@
 
 Author: (C) 2019  Willem Hengeveld <itsme@xs4all.nl>
 """
-import lzma
-import zlib
 import struct
 from binascii import b2a_hex
 import datetime
 import os
 import os.path
+
+import lzma
+import zlib
+
+try:
+    import lzo
+except ImportError:
+    lzo = False
+
+try:
+    import lz4.block
+except ImportError:
+    lz4 = False
+
+try:
+    import zstd
+except ImportError:
+    zstd = False
+
 
 
 # dir entry types
@@ -33,16 +50,16 @@ itypenames = [ "NUL", "DIR", "REG", "SYM", "BLK", "CHR", "FIFO", "SOCK",
             "LDIR", "LREG", "LSYM", "LBLK", "LCHR", "LFIFO", "LSOCK" ]
 
 # filesystem flags
-SQUASHFS_NOI            =  0
-SQUASHFS_NOD            =  1
+SQUASHFS_NOI            =  0 # -noI                    do not compress inode table
+SQUASHFS_NOD            =  1 # -noD                    do not compress data blocks
 SQUASHFS_CHECK          =  2
-SQUASHFS_NOF            =  3
-SQUASHFS_NO_FRAG        =  4
-SQUASHFS_ALWAYS_FRAG    =  5
-SQUASHFS_DUPLICATE      =  6
-SQUASHFS_EXPORT         =  7
-SQUASHFS_NOX            =  8
-SQUASHFS_NO_XATTR       =  9
+SQUASHFS_NOF            =  3 # -noF                    do not compress fragment blocks
+SQUASHFS_NO_FRAG        =  4 # -no-fragments           do not use fragments
+SQUASHFS_ALWAYS_FRAG    =  5 # -always-use-fragments   use fragment blocks for files larger than block size
+SQUASHFS_DUPLICATE      =  6 # -no-duplicates          do not perform duplicate checking
+SQUASHFS_EXPORT         =  7 # -no-exports             don't make the filesystem exportable via NFS
+SQUASHFS_NOX            =  8 # -noX                    do not compress extended attributes
+SQUASHFS_NO_XATTR       =  9 # -no-xattrs              don't store extended attributes
 SQUASHFS_COMP_OPT       = 10
 SQUASHFS_NOID           = 11
 
@@ -156,7 +173,7 @@ class LDirectoryNode:
         return "%s %3d %s %10d  %s  %s/" % (self.hdr.modebits(), self.nlink, self.hdr.idstring(), self.file_size, timestr(self.hdr.mtime), name)
 
     def __str__(self):
-        return "n%d, s%08x, blk%06x, parent:#%04x, cnt:%d, off:%d, xa:%d" % (
+        return "n%d, s%08x, blk%06x, parent:#%04x, cnt:%d, off:%05x, xa:%d" % (
             self.nlink, self.file_size, self.start_block,
             self.parent_inode, self.i_count, self.offset, self.xattr)
 
@@ -196,7 +213,7 @@ class LRegularNode:
         return "%s %3d %s %10d  %s  %s" % (self.hdr.modebits(), self.nlink, self.hdr.idstring(), self.file_size, timestr(self.hdr.mtime), name)
 
     def __str__(self):
-        return "n%d, s%08x, blk%06x, sprs:%d, frag:%d, off:%d, xa:%d {%s}" % (
+        return "n%d, s%08x, blk%06x, sprs:%d, frag:%d, off:%05x, xa:%d {%s}" % (
             self.nlink, self.file_size, self.start_block,
             self.sparse, self.fragment, self.offset, self.xattr,
             ",".join("%06x" % _ for _ in self.block_size_list))
@@ -306,8 +323,8 @@ class RegularNode:
         return "%s %3d %s %10d  %s  %s" % (self.hdr.modebits(), 1, self.hdr.idstring(), self.file_size, timestr(self.hdr.mtime), name)
 
     def __str__(self):
-        return "s%08x, blk%06x, off:%d {%s}" % (
-            self.file_size, self.start_block, self.offset,
+        return "s%08x, blk%06x, off:%05x frag:%08x {%s}" % (
+            self.file_size, self.start_block, self.offset, self.fragment,
             ",".join("%06x" % _ for _ in self.block_size_list))
 
 
@@ -591,7 +608,17 @@ class SquashFs:
         elif self.compression == ZLIB_COMPRESSION:
             return zlib.decompress(data)
         elif self.compression == LZMA_COMPRESSION:
-            return lzma.decompress(data[:5] + b'\xff'*8 + data[5:])
+            if data[:1] == b'\x5d':
+                return lzma.decompress(data[:5] + b'\xff'*8 + data[13:])
+            else:  # \x6d
+                return lzma.decompress(data[:5] + b'\xff'*8 + data[5:])
+        elif self.compression == LZO_COMPRESSION and lzo:
+            return lzo.decompress(data, False, self.block_size)
+        elif self.compression == LZ4_COMPRESSION and lz4:
+            return lz4.block.decompress(data, uncompressed_size=self.block_size)
+        elif self.compression == ZSTD_COMPRESSION and zstd:
+            return zstd.decompress(data)
+
         raise Exception("Compression type %d not supported" % self.compression)
 
     def read_value(self, offset, fmt):
@@ -614,13 +641,18 @@ class SquashFs:
         Read uid/gid map. The uid and gid values in inodes contain an index into
         this table.
         """
-        # TODO: there can be more than one entry here!!
-        idblock = self.read_value(self.id_table_start, "Q")
+        self.fh.seek(self.id_table_start)
+        data = self.fh.read(self.bytes_used - self.id_table_start)
+        idblocks = struct.unpack(self.fmt + "%dQ" % (len(data)//8), data)
 
-        data = self.readblock(idblock)
-        self.idlist = struct.unpack(self.fmt + "%dL" % (len(data)//4), data)
-        if len(self.idlist) != self.nr_ids:
-            print("WARNING: nr ids does not match size of idlist block")
+        self.idlist = ()
+
+        for idblock in idblocks:
+            data = self.readblock(idblock)
+            self.idlist += struct.unpack(self.fmt + "%dL" % (len(data)//4), data)
+
+        if self.nr_ids and len(self.idlist) != self.nr_ids:
+            print("WARNING: nr ids(%d) does not match size of idlist block(%d)" % (self.nr_ids, len(self.idlist)))
 
     def load_xalist(self):
         """
@@ -854,8 +886,20 @@ class SquashFs:
         """
         with open(dstpath, "wb") as fh:
 
+            needed = inode.file_size
+
             if inode.start_block:
                 blkofs = inode.start_block
+
+                # NOTE: there seems to be a problem where
+                # for some short files, there is a startbloc specified,
+                # but no blksize stored in the size-list ( only a zero value ).
+                if not inode.block_size_list:
+                    data = self.readblock(blkofs, 256, True)
+                    if needed < len(data):
+                        data = data[:needed]
+                    fh.write(data)
+                    needed -= len(data)
 
                 for blksize in inode.block_size_list:
                     compressed = True
@@ -864,7 +908,13 @@ class SquashFs:
                         compressed = False
 
                     data = self.readblock(blkofs, blksize, compressed)
+
+                    if needed < len(data):
+                        data = data[:needed]
                     fh.write(data)
+
+                    needed -= len(data)
+
                     blkofs += blksize & 0xFFFFF
 
             if inode.fragment != 0xFFFFFFFF:
@@ -877,6 +927,11 @@ class SquashFs:
                 data = self.readblock(fragofs, fragsize, compressed)
                 remainingsize = inode.file_size % self.block_size
                 fh.write(data[inode.offset : inode.offset + remainingsize ])
+
+                needed -= remainingsize
+
+            if needed:
+                print("WARNING: filesize mismatch writing file - %s" % dstpath)
 
     def dumpinfo(self):
         print("superblock:")
@@ -923,7 +978,7 @@ class SquashFs:
         for i in range(self.nr_inodes):
             o = self.inodemap[i]
             inode = self.readinode(o)
-            print("#%04x, i:%08x -> %s -- %s" % (i, o, inode.hdr, inode))
+            print("#%04x, i:%08x -> %s -- %s" % (i+1, o, inode.hdr, inode))
         print()
 
         print("direntries:")
@@ -962,10 +1017,14 @@ def main():
         args.offset = 0
 
     for fn in args.FILES:
+        print("==> %s <==" % fn)
         with open(fn, "rb") as fh:
             if args.offset:
                 fh = OffsetReader(fh, args.offset)
-            processfile(args, fh)
+            try:
+                processfile(args, fh)
+            except Exception as e:
+                print("ERROR: %s" % e)
 
 
 if __name__ == '__main__':
