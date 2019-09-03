@@ -28,7 +28,11 @@ Dump filesystem tables:
 Installation
 ============
 
-No special dependencies need to be installed.
+To support all compression modes, you may need to install some additional modules:
+
+    pip install python-lzo
+    pip install zstd
+    pip install lz4
 
 
 Similar linux tools
