@@ -204,6 +204,9 @@ class LRegularNode:
 
         # nr of complete blocks
         nblocks = self.file_size // fs.block_size
+
+        if self.fragment == 0xFFFFFFFF and self.file_size % fs.block_size:
+            nblocks += 1
         self.block_size_list = struct.unpack(fs.fmt + "%dL" % nblocks, data[self.MINSIZE:self.MINSIZE+4*nblocks])
 
     def size(self):
@@ -314,6 +317,9 @@ class RegularNode:
 
         # nr of complete blocks
         nblocks = self.file_size // fs.block_size
+        if self.fragment == 0xFFFFFFFF and self.file_size % fs.block_size:
+            nblocks += 1
+
         self.block_size_list = struct.unpack(fs.fmt + "%dL" % nblocks, data[self.MINSIZE:self.MINSIZE+4*nblocks])
 
     def size(self):
@@ -891,9 +897,6 @@ class SquashFs:
             if inode.start_block:
                 blkofs = inode.start_block
 
-                # NOTE: there seems to be a problem where
-                # for some short files, there is a startbloc specified,
-                # but no blksize stored in the size-list ( only a zero value ).
                 if not inode.block_size_list:
                     data = self.readblock(blkofs, 256, True)
                     if needed < len(data):
@@ -903,6 +906,13 @@ class SquashFs:
 
                 for blksize in inode.block_size_list:
                     compressed = True
+
+                    if blksize == 0:
+                        # remaining part is sparse
+                        fh.write(b'\x00' * needed)
+                        needed = 0
+                        break
+
                     if blksize & 0x01000000:
                         blksize &= 0x00FFFFFF
                         compressed = False
