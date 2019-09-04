@@ -121,7 +121,7 @@ class InodeHeader:
             self.gid,
             self.mtime,
             self.inode_idx,
-        ) = struct.unpack(fs.fmt + "4H2L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "4H2L", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -164,7 +164,7 @@ class LDirectoryNode:
             self.i_count,
             self.offset,       # offset into dir block
             self.xattr,
-        ) = struct.unpack(fs.fmt + "4L2HL", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "4L2HL", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -200,14 +200,14 @@ class LRegularNode:
             self.fragment,    # idx into fragment table
             self.offset,      # offset into fragment
             self.xattr,
-        ) = struct.unpack(fs.fmt + "3Q4L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "3Q4L", data[:self.MINSIZE])
 
         # nr of complete blocks
         nblocks = self.file_size // fs.block_size
 
         if self.fragment == 0xFFFFFFFF and self.file_size % fs.block_size:
             nblocks += 1
-        self.block_size_list = struct.unpack(fs.fmt + "%dL" % nblocks, data[self.MINSIZE:self.MINSIZE+4*nblocks])
+        self.block_size_list = struct.unpack(fs.byteorder + "%dL" % nblocks, data[self.MINSIZE:self.MINSIZE+4*nblocks])
 
     def size(self):
         return self.MINSIZE + 4*len(self.block_size_list)
@@ -234,7 +234,7 @@ class LDeviceNode:
             self.nlink,
             self.rdev,
             self.xattr,
-        ) = struct.unpack(fs.fmt + "3L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "3L", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -257,7 +257,7 @@ class LIpcNode:
         (
             self.nlink,
             self.xattr,
-        ) = struct.unpack(fs.fmt + "2L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "2L", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -282,7 +282,7 @@ class DirectoryNode:
             self.file_size,
             self.offset,       # offset into dir block
             self.parent_inode,
-        ) = struct.unpack(fs.fmt + "2L2HL", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "2L2HL", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -313,14 +313,14 @@ class RegularNode:
             self.fragment,    # idx into fragment table
             self.offset,      # offset into fragment
             self.file_size,
-        ) = struct.unpack(fs.fmt + "4L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "4L", data[:self.MINSIZE])
 
         # nr of complete blocks
         nblocks = self.file_size // fs.block_size
         if self.fragment == 0xFFFFFFFF and self.file_size % fs.block_size:
             nblocks += 1
 
-        self.block_size_list = struct.unpack(fs.fmt + "%dL" % nblocks, data[self.MINSIZE:self.MINSIZE+4*nblocks])
+        self.block_size_list = struct.unpack(fs.byteorder + "%dL" % nblocks, data[self.MINSIZE:self.MINSIZE+4*nblocks])
 
     def size(self):
         return self.MINSIZE + 4*len(self.block_size_list)
@@ -346,7 +346,7 @@ class SymlinkNode:
         (
             self.nlink,
             symlink_size,
-        ) = struct.unpack(fs.fmt + "2L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "2L", data[:self.MINSIZE])
         self.symlink = data[self.MINSIZE:self.MINSIZE+symlink_size].decode('utf-8')
 
         # TODO: which is the zero DWORD after the symlink string ?
@@ -374,7 +374,7 @@ class DeviceNode:
         (
             self.nlink,
             self.rdev,
-        ) = struct.unpack(fs.fmt + "2L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "2L", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -398,7 +398,7 @@ class IpcNode:
     def __init__(self, fs, data):
         (
             self.nlink,
-        ) = struct.unpack(fs.fmt + "L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "L", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -421,7 +421,7 @@ class DirHeader:
             self.count,             # note: one less than nr of entries.
             self.inode_block,
             self.index_base,
-        ) = struct.unpack(fs.fmt + "3L", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "3L", data[:self.MINSIZE])
 
     def size(self):
         return self.MINSIZE
@@ -447,7 +447,7 @@ class RelativeDirEntry:
             self.index_delta,     # (signed int) added to the inode_number in the DirHeader
             self.type,            # 1 = dir, 2 = reg, 3 = sym, 4 = blk, 5 = chr, 6 = fifo, 7 = sock
             namelen,         # name length
-        ) = struct.unpack(fs.fmt + "HhHH", data[:self.MINSIZE])
+        ) = struct.unpack(fs.byteorder + "HhHH", data[:self.MINSIZE])
         self.name = data[self.MINSIZE : self.MINSIZE+namelen+1].decode('utf-8')
 
     def size(self):
@@ -484,13 +484,13 @@ class XAttr:
         (
             self.type,
             namelen,
-        ) = struct.unpack(fs.fmt + "HH", data[:4])
+        ) = struct.unpack(fs.byteorder + "HH", data[:4])
         o += 4
 
         self.name = data[o:o+namelen]
         o += namelen
 
-        vallen, = struct.unpack(fs.fmt + "L", data[o:o+4])
+        vallen, = struct.unpack(fs.byteorder + "L", data[o:o+4])
         o += 4
 
         self.value = data[o:o+vallen]
@@ -528,9 +528,9 @@ class SquashFs:
             raise Exception("no data")
         magic = hdrdata[:4]
         if magic == b'sqsh':
-            self.fmt = '>'
+            self.byteorder = '>'
         elif magic == b'hsqs':
-            self.fmt = '<'
+            self.byteorder = '<'
         else:
             raise Exception("not a squashfs")
 
@@ -555,7 +555,10 @@ class SquashFs:
         self.directory_table_start,  # --> uint16:size + data  -> [ *_inde ... ]   : [ squashfs_dir_header + [ squashfs_dir_entry ] ]
         self.fragment_table_start,   # --> uint64:offset -->  [ uint64:blkofs, uint64:size ]
         self.lookup_table_start,     # --> uint64:offset -->  [ uint64:blk:ofs ]   maps index to blk:ofs
-        ) = struct.unpack(self.fmt + "4L6H8Q", hdrdata[4:])
+        ) = struct.unpack(self.byteorder + "4L6H8Q", hdrdata[4:])
+
+        if self.s_major != 4:
+            raise Exception("unsupported version")
 
         if 1<<self.block_log != self.block_size:
             print("WARNING: blocksize: log(%x) != %d" % (self.block_size, self.block_log))
@@ -639,7 +642,7 @@ class SquashFs:
         else: raise Exception("invalid format: %s" % fmt)
 
         self.fh.seek(offset)
-        value, = struct.unpack(self.fmt + fmt, self.fh.read(fmtsize))
+        value, = struct.unpack(self.byteorder + fmt, self.fh.read(fmtsize))
 
         return value
 
@@ -650,13 +653,13 @@ class SquashFs:
         """
         self.fh.seek(self.id_table_start)
         data = self.fh.read(self.id_end - self.id_table_start)
-        idblocks = struct.unpack(self.fmt + "%dQ" % (len(data)//8), data)
+        idblocks = struct.unpack(self.byteorder + "%dQ" % (len(data)//8), data)
 
         self.idlist = ()
 
         for idblock in idblocks:
             data = self.readblock(idblock)
-            self.idlist += struct.unpack(self.fmt + "%dL" % (len(data)//4), data)
+            self.idlist += struct.unpack(self.byteorder + "%dL" % (len(data)//4), data)
 
         if self.nr_ids and len(self.idlist) != self.nr_ids:
             print("WARNING: nr ids(%d) does not match size of idlist block(%d)" % (self.nr_ids, len(self.idlist)))
@@ -672,14 +675,14 @@ class SquashFs:
             xatableofs,
             nr_xaentries,
             xaindexofs,
-        ) = struct.unpack(self.fmt + "3Q", data)
+        ) = struct.unpack(self.byteorder + "3Q", data)
 
         self.id_end = xatableofs
 
         xadata = self.readblock(xatableofs)
         xaindexdata = self.readblock(xaindexofs)
 
-        xaindex = [ struct.unpack_from(self.fmt + "QLL", xaindexdata, i*16) for i in range(nr_xaentries) ]
+        xaindex = [ struct.unpack_from(self.byteorder + "QLL", xaindexdata, i*16) for i in range(nr_xaentries) ]
 
         self.xalist = []
         for i in range(nr_xaentries):
@@ -699,7 +702,7 @@ class SquashFs:
         if len(data)//16 != self.nr_fragments:
             print("WARNING: frag list has %d, while header says: %d expected" % (len(data)//16, self.nr_fragments))
 
-        self.fragments = [ struct.unpack_from(self.fmt + "QQ", data, 16*i) for i in range(len(data)//16) ]
+        self.fragments = [ struct.unpack_from(self.byteorder + "QQ", data, 16*i) for i in range(len(data)//16) ]
 
     def load_lookuptable(self):
         """
@@ -708,13 +711,13 @@ class SquashFs:
         self.fh.seek(self.lookup_table_start)
 
         nr_lookuptables = (self.nr_inodes-1) // 0x400 + 1
-        lookup_ofs = struct.unpack(self.fmt + "%dQ" % nr_lookuptables, self.fh.read(8 * nr_lookuptables ))
+        lookup_ofs = struct.unpack(self.byteorder + "%dQ" % nr_lookuptables, self.fh.read(8 * nr_lookuptables ))
 
         self.inodemap = ()
         for ofs in lookup_ofs:
             data = self.readblock(ofs)
 
-            self.inodemap += struct.unpack(self.fmt + "%dQ" % (len(data)//8), data)
+            self.inodemap += struct.unpack(self.byteorder + "%dQ" % (len(data)//8), data)
 
         if len(self.inodemap) != self.nr_inodes:
             print("WARNING: inode list has %d, while header says: %d expected" % (len(self.inodemap), self.nr_inodes))
@@ -810,7 +813,7 @@ class SquashFs:
         # note: compsize is the size including the optional header word.
         if blkofs not in self.blockcache:
             if size is None:
-                size, = struct.unpack(self.fmt + "H", self.fh.read(2))
+                size, = struct.unpack(self.byteorder + "H", self.fh.read(2))
                 log("read size: %x" % size)
                 compsize = size + 2
                 if size&0x8000:
