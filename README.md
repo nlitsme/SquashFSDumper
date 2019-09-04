@@ -3,6 +3,8 @@ SQUASHFS Dumper
 
 A tool for viewing or extracting files from a SQUASHFS image.
 
+Only v4.0 is supported.
+
 About SQUASHFS
 ==============
 
@@ -53,7 +55,7 @@ TODO
 ====
 
  * add option to view only specific files.
-
+ * support v2 and v3 formats
 
 Author
 ======
