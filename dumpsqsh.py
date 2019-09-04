@@ -572,9 +572,10 @@ class SquashFs:
         if self.flags & (1<<SQUASHFS_COMP_OPT):
             self.opts = self.readblock(0x60)
 
-        self.load_idlist()
+        self.id_end = self.bytes_used
         if self.xattr_id_table_start != (1<<64)-1:
             self.load_xalist()
+        self.load_idlist()
         self.load_fragmentlist()
         self.load_lookuptable()
 
@@ -648,7 +649,7 @@ class SquashFs:
         this table.
         """
         self.fh.seek(self.id_table_start)
-        data = self.fh.read(self.bytes_used - self.id_table_start)
+        data = self.fh.read(self.id_end - self.id_table_start)
         idblocks = struct.unpack(self.fmt + "%dQ" % (len(data)//8), data)
 
         self.idlist = ()
@@ -672,6 +673,8 @@ class SquashFs:
             nr_xaentries,
             xaindexofs,
         ) = struct.unpack(self.fmt + "3Q", data)
+
+        self.id_end = xatableofs
 
         xadata = self.readblock(xatableofs)
         xaindexdata = self.readblock(xaindexofs)
@@ -817,7 +820,7 @@ class SquashFs:
                 compsize = size
 
             data = self.fh.read(size)
-            log("read data: %s" % b2a_hex(data))
+            log("read data: [%04x] %s" % (compsize, b2a_hex(data)))
             if compressed:
                 data = self.decompress(data)
             self.blockcache[blkofs] = (data, compsize)
@@ -1018,6 +1021,7 @@ def main():
     parser.add_argument('--offset', '-o', type=str, help="where in the file the SquashFS is located")
     parser.add_argument('--savedir', '-d', type=str, help="where to extract the files to")
     parser.add_argument('--dump', action='store_true', help="verbose dump of all fs contents")
+    parser.add_argument('--debug', action='store_true', help="abort on exceptions")
     parser.add_argument('FILES', type=str, nargs='+', help="list of images to use")
     args = parser.parse_args()
 
@@ -1034,6 +1038,8 @@ def main():
             try:
                 processfile(args, fh)
             except Exception as e:
+                if args.debug:
+                    raise
                 print("ERROR: %s" % e)
 
 
