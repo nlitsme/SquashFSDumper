@@ -85,7 +85,7 @@ compnames = [ "ZLIB", "LZMA", "LZO", "XZ", "LZ4", "ZSTD" ]
 
 
 def log(*args):
-    #print("##", *args)
+    print("##", *args)
     pass
 
 
@@ -141,7 +141,10 @@ class InodeHeader:
             + perms((mode>>0)&6, "Tt", (mode>>9)&1)
 
     def idstring(self):
-        return "%5d %5d" % (self.fs.idlist[self.uid],self.fs.idlist[self.gid])
+        try:
+            return "%5d %5d" % (self.fs.idlist[self.uid],self.fs.idlist[self.gid])
+        except:
+            return "#%d#%d#" % (self.uid, self.gid)
 
     def oneline(self):
         return "%s %s  %s" % (self.modebits(), self.idstring(), timestr(self.mtime))
@@ -448,7 +451,7 @@ class RelativeDirEntry:
             self.type,            # 1 = dir, 2 = reg, 3 = sym, 4 = blk, 5 = chr, 6 = fifo, 7 = sock
             namelen,         # name length
         ) = struct.unpack(fs.byteorder + "HhHH", data[:self.MINSIZE])
-        self.name = data[self.MINSIZE : self.MINSIZE+namelen+1].decode('utf-8')
+        self.name = data[self.MINSIZE : self.MINSIZE+namelen+1].decode('utf-8', 'ignore')
 
     def size(self):
         return self.MINSIZE + len(self.name)
@@ -658,7 +661,13 @@ class SquashFs:
         self.idlist = ()
 
         for idblock in idblocks:
-            data = self.readblock(idblock)
+            log("idblk = %x" % idblock)
+            try:
+                data = self.readblock(idblock)
+            except Exception as e:
+                print("ERR reading idblock", e)
+                self.fh.seek(idblock)
+                data = self.fh.read(self.nr_ids*4)
             self.idlist += struct.unpack(self.byteorder + "%dL" % (len(data)//4), data)
 
         if self.nr_ids and len(self.idlist) != self.nr_ids:
@@ -702,7 +711,7 @@ class SquashFs:
         if len(data)//16 != self.nr_fragments:
             print("WARNING: frag list has %d, while header says: %d expected" % (len(data)//16, self.nr_fragments))
 
-        self.fragments = [ struct.unpack_from(self.byteorder + "QQ", data, 16*i) for i in range(len(data)//16) ]
+        self.fragments = [ struct.unpack_from(self.byteorder + "QLL", data, 16*i)[:2] for i in range(len(data)//16) ]
 
     def load_lookuptable(self):
         """
@@ -813,7 +822,8 @@ class SquashFs:
         # note: compsize is the size including the optional header word.
         if blkofs not in self.blockcache:
             if size is None:
-                size, = struct.unpack(self.byteorder + "H", self.fh.read(2))
+                # note: this is the only value which is always little-endian!!
+                size, = struct.unpack("<H", self.fh.read(2))
                 log("read size: %x" % size)
                 compsize = size + 2
                 if size&0x8000:
@@ -824,7 +834,7 @@ class SquashFs:
 
             data = self.fh.read(size)
             log("read data: [%04x] %s" % (compsize, b2a_hex(data)))
-            if compressed:
+            if compressed and not data.startswith(b'\x00\x00\x00'):
                 data = self.decompress(data)
             self.blockcache[blkofs] = (data, compsize)
         else:
