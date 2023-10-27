@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 """
 `dumpsqsh` - a tool for viewing or extracting SquashFS contents
 
